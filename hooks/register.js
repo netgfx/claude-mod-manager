@@ -404,9 +404,10 @@ async function checkForUpdates($) {
       mods.map((m) => resolveLatest($, m, catalogs.get(m.marketplace), byName.get(m.marketplace))),
     )
     await update($, modsAtom, () => mods)
+    const at = await $.clock.now()
     await update($, scanAtom, () => ({
       phase: 'idle',
-      at: $.clock.now(),
+      at,
       error: failures.length ? 'Some marketplaces could not refresh: ' + failures[0] : '',
     }))
     await showStatus($)
@@ -598,7 +599,7 @@ async function showStatus($) {
 // ---- Actions ------------------------------------------------------------------
 
 async function setNotice($, text, kind) {
-  const at = $.clock.now()
+  const at = await $.clock.now()
   await update($, noticeAtom, () => ({ text, kind, at }))
   $.clock.after(NOTICE_MS, async () => {
     const current = await read($, noticeAtom)
@@ -805,7 +806,7 @@ export function register(on, opts) {
     const notice = await read($, noticeAtom)
     const busy = await read($, busyAtom)
     const pending = await read($, pendingAtom)
-    const now = $.clock.now()
+    const now = await $.clock.now()
     const redraw = () => $.ui.invalidate('ui.render')
 
     const visible = mods.filter((m) => matches(m, filter))
@@ -829,7 +830,7 @@ export function register(on, opts) {
           ? Text({ color: 'cyan', children: ['⟳ checking marketplaces…'] })
           : scan.error
             ? Text({ color: 'red', wrap: 'truncate-end', children: ['✕ ' + scan.error] })
-            : scan.at
+            : Number.isFinite(scan.at) && scan.at
               ? Text({ dimColor: true, children: ['✓ checked ' + ago(scan.at, now)] })
               : Text({ dimColor: true, children: ['not checked yet'] })
 

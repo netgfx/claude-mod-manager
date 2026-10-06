@@ -1,6 +1,6 @@
 {
   "name": "mod-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A /mod-manager side pane: every installed mod and plugin with update, auto-update, uninstall, enable/disable, reload and open actions, a background check that flags outdated mods, and adding marketplaces from a GitHub or GitLab URL",
   "author": { "name": "djmid", "email": "djmid71@gmail.com" },
   "homepage": "https://github.com/netgfx/claude-mod-manager",
