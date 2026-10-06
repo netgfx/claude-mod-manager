@@ -1,0 +1,49 @@
+{
+  "name": "mod-manager",
+  "version": "0.2.0",
+  "description": "A /mod-manager side pane: every installed mod and plugin with update, auto-update, uninstall, enable/disable, reload and open actions, a background check that flags outdated mods, and adding marketplaces from a GitHub or GitLab URL",
+  "author": { "name": "djmid", "email": "djmid71@gmail.com" },
+  "homepage": "https://github.com/netgfx/claude-mod-manager",
+  "repository": "https://github.com/netgfx/claude-mod-manager",
+  "license": "MIT",
+  "keywords": ["mod", "plugins", "manager", "updates", "pane", "marketplace"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "check_on_start": {
+      "type": "boolean",
+      "title": "Check for updates on start",
+      "description": "Look for mod updates in the background a few seconds after a session starts, and show the count in the status line",
+      "default": true
+    },
+    "check_interval_hours": {
+      "type": "number",
+      "title": "Re-check every (hours)",
+      "description": "How often to look for updates again while a session stays open. 0 turns the periodic check off",
+      "default": 6
+    },
+    "show_status": {
+      "type": "boolean",
+      "title": "Show updates in the status line",
+      "description": "Show 'N mod updates' under the prompt when an installed mod has a newer version",
+      "default": true
+    },
+    "auto_update": {
+      "type": "boolean",
+      "title": "Auto-update all mods",
+      "description": "Update every marketplace mod as soon as a check finds a newer version. A mod's own setting (t in the pane) overrides this",
+      "default": false
+    },
+    "auto_reload": {
+      "type": "boolean",
+      "title": "Reload after auto-update",
+      "description": "Run /reload-plugins (once the session is idle) after an auto-update, so the new versions load right away",
+      "default": false
+    },
+    "auto_open": {
+      "type": "boolean",
+      "title": "Open on start",
+      "description": "Open the pane when a session starts (it appears once the terminal is wide enough)",
+      "default": false
+    }
+  }
+}

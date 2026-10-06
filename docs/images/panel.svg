@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="600" viewBox="0 0 560 600" role="img" aria-label="The mod-manager pane: counts, a check status line, sections for updates available, installed, disabled and local folders, and action keys at the bottom">
+  <style>
+    text { font-family: 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; fill: #d4d4d4; white-space: pre; }
+    .dim { fill: #7a7a7a; }
+    .b { font-weight: 700; }
+    .y { fill: #e5c07b; }
+    .g { fill: #98c379; }
+    .m { fill: #c678dd; }
+    .c { fill: #56b6c2; }
+    .k { fill: #61afef; font-weight: 700; }
+  </style>
+  <rect width="560" height="600" rx="10" fill="#1e1f22"/>
+  <rect x="12" y="12" width="536" height="576" rx="8" fill="none" stroke="#4b4f57"/>
+  <rect x="28" y="4" width="60" height="18" fill="#1e1f22"/>
+  <text x="34" y="18" class="b">Mods</text>
+
+  <text x="28" y="44" class="b">7 installed<tspan class="y" font-weight="400"> · 2 updates</tspan></text>
+  <text x="28" y="64" class="dim">✓ checked just now</text>
+  <text x="28" y="88" class="dim">────────────────────────────────────────────────────────────</text>
+
+  <text x="28" y="112" class="y b">UPDATES AVAILABLE (2)</text>
+  <rect x="44" y="119" width="160" height="19" rx="2" fill="#2f3a4a"/>
+  <text x="28" y="133"><tspan class="c">▸</tspan> <tspan class="y">▲</tspan> alpha-tools       <tspan class="dim">1.0.0 </tspan><tspan class="y b">→ 1.2.0</tspan>  <tspan class="c">auto</tspan></text>
+  <text x="28" y="153">  <tspan class="y">▲</tspan> gitkraken-hooks   <tspan class="dim">3.1.75 </tspan><tspan class="y">→ new commit</tspan></text>
+
+  <text x="28" y="185" class="dim b">INSTALLED (2)</text>
+  <text x="28" y="206">  <tspan class="g">●</tspan> context7          1.0.0</text>
+  <text x="28" y="226">  <tspan class="g">●</tspan> slack             1.3.0  <tspan class="dim">(project)</tspan></text>
+
+  <text x="28" y="258" class="dim b">DISABLED (1)</text>
+  <text x="28" y="279" class="dim">  ○ old-linter        0.4.2</text>
+
+  <text x="28" y="311" class="m b">LOCAL FOLDERS (--plugin-dir) (2)</text>
+  <text x="28" y="332">  <tspan class="m">◆</tspan> git-mod           0.3.0</text>
+  <text x="28" y="352">  <tspan class="m">◆</tspan> mod-manager       0.1.0</text>
+
+  <text x="28" y="384" class="dim">────────────────────────────────────────────────────────────</text>
+  <text x="28" y="408"><tspan class="k">u</tspan> Update  <tspan class="k">x</tspan> Uninstall  <tspan class="k">e</tspan> Disable  <tspan class="k">o</tspan> Open folder</text>
+  <text x="28" y="430"><tspan class="k">t</tspan> Auto-update: on</text>
+  <text x="28" y="452"><tspan class="k">a</tspan> Update all (2)  <tspan class="k">c</tspan> Check now  <tspan class="k">r</tspan> Reload  <tspan class="k">f</tspan> Filter</text>
+  <text x="28" y="474"><tspan class="k">m</tspan> Add marketplace</text>
+  <text x="28" y="496" class="dim">↑↓ move · Enter details · keys act on alpha-tools</text>
+
+  <rect x="28" y="514" width="504" height="58" rx="6" fill="none" stroke="#e5c07b"/>
+  <text x="44" y="538" class="b">Uninstall old-linter@acme-tools?</text>
+  <text x="44" y="560"><tspan class="k">y</tspan> Yes   <tspan class="k">n</tspan> Cancel   <tspan class="dim">(shown after pressing x)</tspan></text>
+</svg>
