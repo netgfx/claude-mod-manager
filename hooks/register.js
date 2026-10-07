@@ -11,6 +11,7 @@ import { atom, read, update } from 'claude-code'
 const PANE = 'mod-manager'
 const PANE_COLUMNS = 60
 const NOTICE_MS = 12_000
+const RELOADING = 'Reloading plugins…'
 const CHECK_DELAY_MS = 4_000
 
 // Data the pane draws lives in $.state so it survives /reload-plugins and hot reloads
@@ -684,7 +685,7 @@ async function updateAll($) {
 
 async function reloadPlugins($) {
   await update($, pendingAtom, () => false)
-  await setNotice($, 'Reloading plugins…', 'info')
+  await setNotice($, RELOADING, 'info')
   try {
     // Queued until the session is idle; it reloads this mod too
     await $.command.run({ command: 'reload-plugins' })
@@ -723,6 +724,10 @@ export function register(on, opts) {
     await detectPlatform($)
     // A reload just ran (or this is a fresh session): nothing is waiting any more
     await update($, pendingAtom, () => false)
+    // $.state kept the notice but the reload cancelled the timer that clears it
+    const notice = await read($, noticeAtom)
+    if (notice?.text === RELOADING) await setNotice($, 'Plugins reloaded.', 'ok')
+    else if (notice) await setNotice($, notice.text, notice.kind)
 
     try {
       await $.command.register({
