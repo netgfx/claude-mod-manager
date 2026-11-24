@@ -7,6 +7,7 @@
   "homepage": "https://github.com/netgfx/claude-mod-manager",
   "repository": "https://github.com/netgfx/claude-mod-manager",
   "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/netgfx/claude-mod-manager/blob/main/PRIVACY.md",
   "keywords": ["mod", "plugins", "manager", "updates", "pane", "marketplace"],
   "network": { "hosts": ["github.com", "gitlab.com"] },
   "types": "./types/index.d.ts",
