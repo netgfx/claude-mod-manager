@@ -1,16 +1,23 @@
-name: validate
+name: Validate
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
+    name: Validate and test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      PLUGIN_DIR: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +25,9 @@ jobs:
           node-version: lts/*
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
-      - name: Validate (directory profile, strict)
-        run: claude plugin validate --profile directory --strict .
-      - name: Test
-        run: claude plugin test .
+      - name: Validate with the plugin directory profile
+        shell: bash
+        run: claude plugin validate --profile directory --strict "$PLUGIN_DIR"
+      - name: Run the tests
+        shell: bash
+        run: claude plugin test "$PLUGIN_DIR"
