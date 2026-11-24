@@ -81,13 +81,26 @@ function setup(
   $: any,
   on: any,
   p: Platform,
-  opts: { failUpdate?: boolean; store?: Record<string, unknown>; addResult?: 'ok' | 'missing' } = {},
+  opts: {
+    failUpdate?: boolean
+    store?: Record<string, unknown>
+    addResult?: 'ok' | 'missing'
+    // what `where.exe claude` prints, and which programs fail to start
+    where?: string
+    cannotStart?: (argv0: string) => boolean
+    // changes to the fixtures before the test runs
+    tweak?: (fx: ReturnType<typeof fixtures>) => void
+    // mod-manager's old store file in Claude Code's plugin store folder
+    oldStore?: Record<string, unknown>
+  } = {},
 ) {
   const runs: string[][] = []
   const toasts: string[] = []
   const statuses: (string | undefined)[] = []
   const commands: string[] = []
+  const reads: string[] = []
   const fx = fixtures(p)
+  opts.tweak?.(fx)
   const clock = mock.clock(on, { now: 1_000_000 })
   const store = new Map<string, unknown>(Object.entries(opts.store ?? {}))
   on('store.get', ($: any, e: any) => ({ value: store.get(e.key) }))
@@ -99,8 +112,17 @@ function setup(
   on('session.start', () => ({ cwd: p.cwd }))
   on('session.cwd', () => ({ value: p.cwd }))
   on('env.get', ($: any, e: any) => ({
-    value: e.name === 'OS' ? (p.os === 'windows' ? 'Windows_NT' : undefined) : p.home,
+    value: e.name === 'OS' ? (p.os === 'windows' ? 'Windows_NT' : undefined) : e.name === 'CLAUDE_CONFIG_DIR' ? undefined : p.home,
   }))
+  // Claude Code's plugin store folder, holding the old mod-manager store when opts.oldStore is set
+  on('fs.list', ($: any, e: any) =>
+    opts.oldStore && /plugins\/store$/.test(String(e.path).replace(/\\/g, '/'))
+      ? { value: [
+        { name: 'mod-manager_claude-mod-manager-ab9b2b51133d.json', kind: 'file', size: 2, isLink: false },
+        { name: 'other_x-111111111111.json', kind: 'file', size: 2, isLink: false },
+      ] }
+      : { deny: 'ENOENT' },
+  )
   on('command.register', () => ({ value: { command: 'mod-manager' } }))
   on('command.run', ($: any, e: any) => {
     commands.push(e.command)
@@ -120,16 +142,22 @@ function setup(
   on('ui.copy', () => ({ value: undefined }))
   on('fs.read', ($: any, e: any) => {
     const path = String(e.path).replace(/\\/g, '/')
+    reads.push(path)
+    if (opts.oldStore && path.endsWith('plugins/store/mod-manager_claude-mod-manager-ab9b2b51133d.json')) return { value: JSON.stringify(opts.oldStore) }
     const hit = Object.keys(fx.files).find((k) => path.endsWith(k))
     return hit ? { value: fx.files[hit] } : { deny: 'ENOENT: ' + path }
   })
   on('process.run', ($: any, e: any) => {
     const argv = [...e.argv] as string[]
     runs.push(argv)
+    if (opts.cannotStart?.(argv[0])) return { deny: 'spawn ' + argv[0] + ' ENOENT' }
     const i = argv.indexOf('plugin')
     const args = i >= 0 ? argv.slice(i + 1) : argv
     const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } })
+    if (argv[0] === 'where.exe') return opts.where ? ok(opts.where) : { value: { exitCode: 1, stdout: '', stderr: 'INFO: Could not find files' } }
     if (argv[0] === 'git') return ok('ccccccc3333\tHEAD\n')
+    if (args[0] === 'validate')
+      return ok('Validating plugin: ' + args[1] + '\n  ❯ ./register.js hooks: tool.call, ui.render{component=Pane}\n  ❯ ./register.js calls: $.process.run, $.fs.read\n  ❯ ./register.js env writes: nothing\n\n✔ Validation passed\n')
     if (args[0] === 'list') return ok(JSON.stringify({ installed: fx.installed }))
     if (args[0] === 'marketplace' && args[1] === 'list') return ok(JSON.stringify(fx.markets))
     if (args[0] === 'marketplace' && args[1] === 'update') return ok('updated')
@@ -150,7 +178,7 @@ function setup(
     if (['update', 'uninstall', 'enable', 'disable', 'install'].includes(args[0])) return ok('done')
     return ok('')
   })
-  return { runs, toasts, statuses, commands, clock, store }
+  return { runs, toasts, statuses, commands, clock, store, reads }
 }
 
 async function openAndCheck($: any, clock: any) {
@@ -303,8 +331,16 @@ test('m adds a GitLab repo as a marketplace and installs the ticked plugins', as
   expect(await ui.find({ type: 'Text', text: 'Team tools' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Added marketplace tools: 2 plugins/ })).toBeDefined()
 
-  // Both are ticked; untick tool-b, then install
-  await ui.press({ key: 'pick:tool-b' })
+  // Nothing is ticked until you tick it, and what each plugin hooks and calls shows first
+  expect(await ui.find({ type: 'Button', text: /^\[ \] tool-a/ } as any)).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /^\[ \] tool-b/ } as any)).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /Install selected \(0\)/ } as any)).toBeDefined()
+  await clock.advance(10)
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: /hooks: tool\.call, ui\.render/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /calls: \$\.process\.run/ })).toBeDefined()
+  expect(runs.some((r) => r.includes('validate') && /marketplaces[\\/]tools[\\/]a$/.test(r[r.length - 1]))).toBe(true)
+  await ui.press({ key: 'pick:tool-a' })
   await ui.press({ key: 'act-i' })
   const installs = runs.filter((r) => r.includes('install')).map((r) => r.join(' '))
   expect(installs.length).toBe(1)
@@ -331,3 +367,155 @@ test('text that is not a URL never reaches the CLI', async ($, on) => {
   expect(runs.some((r) => r.includes('add'))).toBe(false)
   expect(await ui.find({ type: 'Text', text: /does not look like a repository URL/ })).toBeDefined()
 })
+
+// ---- Names from a marketplace never reach a command unchecked ----------------------
+
+// Adds the GitLab tools marketplace from the add view and returns the pane
+async function addTools($: any, clock: any) {
+  await openAndCheck($, clock)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await ui.press({ key: 'act-m' })
+  await ui.input({ key: 'repo', text: 'https://gitlab.com/grp/tools' })
+  await clock.advance(10)
+  await clock.settle()
+  return ui
+}
+
+const hostileTools = (fx: any) => {
+  const key = 'marketplaces/tools/.claude-plugin/marketplace.json'
+  const cat = JSON.parse(fx.files[key])
+  cat.plugins.push({ name: 'x&calc', source: './x', version: '6.6.6', description: 'Hostile name' })
+  cat.plugins.push({ name: '--help', source: './y', version: '1.0.0' })
+  fx.files[key] = JSON.stringify(cat)
+}
+
+for (const p of PLATFORMS) {
+  test('a catalog plugin named x&calc is listed but never installed or run (' + p.os + ')', async ($, on) => {
+    const { runs, clock } = setup($, on, p, { tweak: hostileTools })
+    const ui = await addTools($, clock)
+    expect(await ui.find({ type: 'Button', text: /^\[✕\] x&calc/ } as any)).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /not installable here/ })).toBeDefined()
+    // pressing it ticks nothing, and "Select all" leaves it out
+    await ui.press({ key: 'pick:x&calc' })
+    await ui.press({ key: 'act-s' })
+    await ui.press({ key: 'act-i' })
+    const all = runs.map((r) => r.join(' '))
+    expect(all.some((r) => r.includes('&'))).toBe(false)
+    expect(all.some((r) => r.includes('--help'))).toBe(false)
+    expect(all.filter((r) => / install /.test(r)).map((r) => r.split(' install ')[1])).toEqual(['tool-a@tools --scope user', 'tool-b@tools --scope user'])
+  })
+}
+
+test('a marketplace or installed plugin with a hostile name is skipped, never passed to the CLI', async ($, on) => {
+  const { runs, clock } = setup($, on, PLATFORMS[0], {
+    tweak: (fx) => {
+      fx.markets.push({ name: 'evil&calc', source: 'github', repo: 'x/y', installLocation: 'C:\\Users\\me\\.claude\\plugins\\marketplaces\\evil' })
+      fx.installed.push({ id: 'zed@evil&calc', version: '1.0.0', scope: 'user', enabled: true, installPath: 'C:\\x' })
+      fx.installed.push({ id: 'ok@shop', version: '1.0.0', scope: 'user"&calc', enabled: true, installPath: 'C:\\y' })
+    },
+  })
+  await openAndCheck($, clock)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await ui.press({ key: 'row:zed@evil&calc|user' })
+  await ui.press({ key: 'act-e' })
+  expect(await ui.find({ type: 'Text', text: /is not a plain plugin id and scope/ })).toBeDefined()
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'row:ok@shop|user"&calc' })
+  await ui.press({ key: 'act-e' })
+  const all = runs.map((r) => r.join(' '))
+  expect(all.some((r) => r.includes('&'))).toBe(false)
+  expect(all.some((r) => r.endsWith('marketplace update shop'))).toBe(true)
+})
+
+// ---- Starting the claude CLI on Windows -------------------------------------------
+
+test('on Windows, the claude.exe that where.exe finds runs directly, with no cmd.exe', async ($, on) => {
+  const exe = 'C:\\Users\\me\\.local\\bin\\claude.exe'
+  const { runs, clock } = setup($, on, PLATFORMS[0], {
+    where: exe + '\r\nC:\\Users\\me\\AppData\\Roaming\\npm\\claude\r\nC:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\r\n',
+  })
+  await openAndCheck($, clock)
+  expect(runs.find((r) => r.includes('list'))).toEqual([exe, 'plugin', 'list', '--json'])
+  expect(runs.some((r) => r[0] === 'cmd')).toBe(false)
+})
+
+test('with only npm\'s claude.cmd, cmd.exe runs it, and only with plain arguments', async ($, on) => {
+  const shim = 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd'
+  const { runs, clock } = setup($, on, PLATFORMS[0], {
+    where: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude\r\n' + shim + '\r\n',
+    cannotStart: (argv0) => argv0 !== 'cmd' && argv0 !== 'where.exe' && argv0 !== 'git',
+    // the tools marketplace sits in a folder whose path has a space
+    tweak: (fx) => { fx.toolsMarket.installLocation = 'C:\\Users\\me\\My Plugins\\marketplaces\\tools' },
+  })
+  const ui = await addTools($, clock)
+  // direct starts are tried first; cmd.exe only once they fail
+  const lists = runs.filter((r) => r.includes('list') && !r.includes('marketplace'))
+  expect(lists[0][0]).not.toBe('cmd')
+  expect(lists.find((r) => r[0] === 'cmd')).toEqual(['cmd', '/d', '/s', '/c', shim, 'plugin', 'list', '--json'])
+  // a path with a space is not safe for cmd.exe, so validate is not run through it
+  expect(runs.some((r) => r[0] === 'cmd' && r.includes('validate'))).toBe(false)
+  expect(await ui.find({ type: 'Text', text: /validate: Could not start the claude CLI: only npm's claude\.cmd was found/ })).toBeDefined()
+  for (const r of runs.filter((x) => x[0] === 'cmd')) for (const a of r.slice(5)) expect(a).toMatch(/^[A-Za-z0-9._~:/@#+-]+$/)
+})
+
+// ---- git ls-remote only gets plain URLs -------------------------------------------
+
+test('a catalog URL that looks like a git option never reaches git', async ($, on) => {
+  const { runs, clock } = setup($, on, PLATFORMS[1], {
+    tweak: (fx) => {
+      fx.files['marketplaces/official/.claude-plugin/marketplace.json'] = JSON.stringify({
+        name: 'official',
+        plugins: [{ name: 'gamma', source: { source: 'url', url: '--upload-pack=touch /tmp/pwned' } }],
+      })
+    },
+  })
+  await openAndCheck($, clock)
+  expect(runs.some((r) => r[0] === 'git')).toBe(false)
+})
+
+test('an unpinned catalog URL is asked for its latest commit, after --', async ($, on) => {
+  const { runs, clock } = setup($, on, PLATFORMS[1], {
+    tweak: (fx) => {
+      fx.files['marketplaces/official/.claude-plugin/marketplace.json'] = JSON.stringify({
+        name: 'official',
+        plugins: [{ name: 'gamma', source: { source: 'url', url: 'https://example.com/gamma.git' } }],
+      })
+    },
+  })
+  await openAndCheck($, clock)
+  expect(runs.find((r) => r[0] === 'git')).toEqual(['git', 'ls-remote', '--', 'https://example.com/gamma.git', 'HEAD'])
+})
+
+// ---- Renamed plugins and the rename of this plugin ---------------------------------
+
+test('a plugin its marketplace renamed keeps its auto-update choice', async ($, on) => {
+  const { runs, clock, store } = setup($, on, PLATFORMS[1], {
+    store: { 'auto-update:old-alpha@shop': true },
+    tweak: (fx) => {
+      const key = 'marketplaces/shop/.claude-plugin/marketplace.json'
+      fx.files[key] = JSON.stringify({ ...JSON.parse(fx.files[key]), renames: { 'old-alpha': 'alpha' } })
+    },
+  })
+  await openAndCheck($, clock)
+  expect(store.get('auto-update:alpha@shop')).toBe(true)
+  expect(runs.some((r) => r.join(' ').endsWith('plugin update alpha@shop --scope user'))).toBe(true)
+})
+
+for (const p of PLATFORMS) {
+  test('auto-update choices are copied once from the mod-manager store (' + p.os + ')', async ($, on) => {
+    const { store, reads } = setup($, on, p, {
+      store: { 'auto-update:beta@shop': false },
+      oldStore: { 'auto-update:alpha@shop': true, 'auto-update:beta@shop': true, 'something-else': 1 },
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: p.cwd } as any)
+    expect(store.get('auto-update:alpha@shop')).toBe(true)
+    // a choice already made here wins
+    expect(store.get('auto-update:beta@shop')).toBe(false)
+    expect(store.has('something-else')).toBe(false)
+    expect(store.get('migrated:mod-manager')).toBe(true)
+    // only the old mod-manager file is read from the store folder
+    const storeReads = reads.filter((r) => r.includes('plugins/store/'))
+    expect(storeReads.length).toBe(1)
+    expect(storeReads[0]).toMatch(/\/Users\/me\/\.claude\/plugins\/store\/mod-manager_claude-mod-manager-ab9b2b51133d\.json$/)
+  })
+}
