@@ -2,3 +2,9 @@
 .claude-plugin/types/
 .claude/settings.local.json
 node_modules/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX/
