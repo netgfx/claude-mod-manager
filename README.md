@@ -1,8 +1,14 @@
-# mod-manager
+# Mod Manager (powermods-mod-manager)
+
+**Mod Manager runs only `claude plugin …` commands you trigger. It never downloads code itself.** Every install, update, uninstall, enable, disable and marketplace add goes through Claude Code's own `claude plugin` CLI, with Claude Code's own checks, and happens only when you press a key (or for the mods you turned auto-update on for). The CLI does the downloading; the pane is a front-end for it.
+
+> **Claude Code only.** Runs in the Claude Code CLI (v2.1.287+), the Desktop app's Code tab (v2.1.286+) and the VS Code extension (v2.1.299+ for panes). It does nothing in claude.ai chat or Cowork.
 
 A `/mod-manager` side pane for Claude Code that lists every mod and plugin you have installed. From the pane you can **update** a mod from its marketplace, **uninstall** it, **enable or disable** it, **reload** plugins, and **open** its folder or homepage. Each time the pane opens, it checks the marketplaces in the background and marks the mods that are **out of date**. You can also turn on **auto-update** for each mod or for all of them, and **add a marketplace from a GitHub or GitLab URL**, then pick which of its plugins to install.
 
-Tested with Claude Code 2.1.291 on Windows 11. It uses only cross-platform calls, so it also runs on macOS and Linux, in the terminal and in the Code tab of Claude Desktop. It needs Claude Code **2.1.287 or later** because mods were added in that version.
+Its tests run on Claude Code 2.1.331, on Windows 11. It uses only cross-platform calls, so it also runs on macOS and Linux, in the terminal and in the Code tab of Claude Desktop.
+
+Mods run with your permissions, so **install mods only from authors and marketplaces you trust**. The pane ticks nothing for you and shows what each plugin hooks and calls before you install it. Read [Data, network and permissions](#data-network-and-permissions) before you install, and the privacy statement in [PRIVACY.md](PRIVACY.md).
 
 ![The mod-manager pane: counts, check status, sections for updates, installed, disabled and local mods, and the action keys](docs/images/panel.svg)
 
@@ -11,18 +17,27 @@ Tested with Claude Code 2.1.291 on Windows 11. It uses only cross-platform calls
 Inside Claude Code:
 ```
 /plugin marketplace add netgfx/claude-mod-manager
-/plugin install mod-manager@claude-mod-manager
+/plugin install powermods-mod-manager@claude-mod-manager
 /reload-plugins
+```
+
+Or in one step (Claude Code v2.1.275 or later):
+```
+/plugin install powermods-mod-manager --marketplace netgfx/claude-mod-manager
 ```
 
 From a shell (PowerShell, Bash or Zsh):
 ```bash
 claude plugin marketplace add netgfx/claude-mod-manager
-claude plugin install mod-manager@claude-mod-manager --scope user
+claude plugin install powermods-mod-manager@claude-mod-manager --scope user
 ```
 Then start Claude Code (or run `/reload-plugins`) and type `/mod-manager`. `/mods` is a shorter name for the same command. You only get `/mods` if no other plugin has already taken that name.
 
-With `--scope user`, the mod loads in every session, so `/mod-manager` works in any project. You can use mod-manager to update mod-manager itself.
+With `--scope user`, the mod loads in every session, so `/mod-manager` works in any project. You can use Mod Manager to update itself.
+
+### Upgrading from mod-manager
+
+Up to 0.2.2 the plugin was named `mod-manager`. The marketplace maps the old name to the new one, so Claude Code moves an existing install and its settings over; because the marketplace comes from GitHub, run `/plugin install powermods-mod-manager@claude-mod-manager` once after updating. On its first start the renamed plugin copies your per-mod auto-update choices from the old `mod-manager` store, without replacing a choice already made. When a marketplace renames one of its plugins (its `renames` map), the auto-update choice you made under the old name carries over to the new one.
 
 ## Using it
 
@@ -94,7 +109,7 @@ When the terminal is in fullscreen layout and wide enough, the pane docks as a s
 
 ### Add a marketplace from a URL (press m)
 
-Paste a repository URL and press Enter. The pane runs `claude plugin marketplace add` and reads the repo's `marketplace.json`. It then lists the plugins in that marketplace with every plugin you don't have yet ticked. Untick any you don't want and press `i`:
+Paste a repository URL and press Enter. The pane runs `claude plugin marketplace add` and reads the repo's `marketplace.json`. It then lists the plugins in that marketplace with **nothing ticked**. For each plugin the marketplace ships in its own repository, the pane runs `claude plugin validate` on its folder and shows the verdict and the `hooks:`, `calls:` and `env` lines under it, so you see what a mod would hook and call before you install it. A plugin the marketplace fetches from somewhere else is only on disk after it's installed, so the pane says so instead. Tick the ones you want and press `i`:
 
 ```
 ╭─ Mods ─────────────────────────────────────────────────────╮    ╭─ Mods ─────────────────────────────────────────────────────╮
@@ -104,13 +119,16 @@ Paste a repository URL and press Enter. The pane runs `claude plugin marketplace
 │ Paste a GitHub or GitLab repository. It must have          │    │ Shared Claude Code mods for the platform team              │
 │ .claude-plugin/marketplace.json at its root.               │    │ ✓ Added marketplace team-tools: 3 plugins.                 │
 │                                                            │    │ ────────────────────────────────────────────────────────── │
-│ Repository  gitlab.com/acme/team-tools█        [add]       │ →  │ [✓] lint-guard      1.4.0                                  │
+│ Repository  gitlab.com/acme/team-tools█        [add]       │ →  │ [ ] lint-guard      1.4.0                                  │
 │                                                            │    │     Blocks commits that fail the linter                    │
-│ Accepted forms:                                            │    │ [ ] deploy-pane     0.9.2                                  │
-│   owner/repo                                               │    │     A /deploy side pane                                    │
-│   https://github.com/owner/repo                            │    │ [•] git-mod         0.3.0  installed                       │
-│   https://gitlab.com/group/project                         │    │ ────────────────────────────────────────────────────────── │
-│   git@gitlab.com:group/project.git                         │    │ i Install selected (1)  s Select all                       │
+│ Accepted forms:                                            │    │     ✔ Validation passed                                    │
+│   owner/repo                                               │    │     hooks: tool.call                                       │
+│   https://github.com/owner/repo                            │    │     calls: $.process.run                                   │
+│   https://gitlab.com/group/project                         │    │ [ ] deploy-pane     0.9.2                                  │
+│   git@gitlab.com:group/project.git                         │    │     A /deploy side pane                                    │
+│                                                            │    │ [•] git-mod         0.3.0  installed                       │
+│                                                            │    │ ────────────────────────────────────────────────────────── │
+│                                                            │    │ i Install selected (0)  s Select all                       │
 ╰────────────────────────────────────────────────────────────╯    ╰────────────────────────────────────────────────────────────╯
 ```
 
@@ -120,7 +138,8 @@ Paste a repository URL and press Enter. The pane runs `claude plugin marketplace
 - **Wrong structure**: if the repo has no `.claude-plugin/marketplace.json`, the pane says so, and no marketplace is added. A missing or private repo gets its own message.
 - **Already added**: if you paste a marketplace you already have, the pane opens its plugin list so you can install more of them.
 - Plugins are installed with `--scope user`, so they load in every project. Press `r` afterwards to load them.
-- Only URL characters (`A–Z a–z 0–9 . _ ~ : / @ # + -`) are accepted. The text never goes through a shell.
+- Only URL characters (`A–Z a–z 0–9 . _ ~ : / @ # + -`) are accepted, and a value that starts with `-` is refused, so nothing you paste can be read as a command-line option.
+- A plugin whose name in `marketplace.json` isn't plain letters, digits, `.`, `_` and `-` (starting with a letter or digit) is listed with `[✕]` and can't be ticked: names come from files anyone can publish, so the pane never passes such a name to a command.
 
 ### Auto-update
 
@@ -195,11 +214,11 @@ In the terminal, a key only does something while the pane has focus. While the f
 - **One-key actions** with confirmations for the destructive ones, a busy indicator, and the CLI's error text when an action fails.
 - **Reload prompt**: after you change anything, the pane reminds you to reload and offers a button for it. The pane's data is kept in session state, so it survives the reload.
 - **Search/filter**, a **details view**, **open folder / homepage**, and **copy path**.
-- **Works on Windows, macOS and Linux**, in the terminal and in Desktop. `claude` is started directly, and on Windows it falls back to `cmd /c claude`, then to `~/.local/bin/claude`.
+- **Works on Windows, macOS and Linux**, in the terminal and in Desktop. `claude` is started directly, with no shell (see [Data, network and permissions](#data-network-and-permissions) for the exact order).
 
 ## Settings
 
-Change these in `/config` (look for the mod-manager rows), or in `pluginConfigs` in `~/.claude/settings.json` under the key `mod-manager@claude-mod-manager`.
+Change these in `/config` (look for the Mod Manager rows), or in `pluginConfigs` in `~/.claude/settings.json` under the key `powermods-mod-manager@claude-mod-manager`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -216,7 +235,33 @@ Change these in `/config` (look for the mod-manager rows), or in `pluginConfigs`
 - An update only works for a plugin that came from a marketplace. Mods loaded from a folder (`◆`) are yours to edit in that folder.
 - Some marketplaces declare an install command that you have to confirm, such as a `headersHelper`. For security, the pane never passes `--yes`. If the CLI asks for confirmation, the pane tells you which `claude plugin update …` command to run in a terminal.
 - The pane changes nothing behind your back. The background check only refreshes marketplace catalogs (`claude plugin marketplace update`) and reads files. Plugins are installed, removed or toggled only when you press a key. The one exception is the mods you turned auto-update on for.
-- The `$` calls this mod makes, as `claude plugin validate` lists them: `$.process.run` (the `claude` CLI, `git ls-remote`, and `explorer.exe`, `open` or `xdg-open`), `$.fs.read` (marketplace catalogs, `plugin.json`, `installed_plugins.json`), `$.command.register` / `$.command.run` (`/reload-plugins`), `$.store.get` / `$.store.set` (the per-mod auto-update choices), `$.env.get` (`OS`, `HOME`, `USERPROFILE`), `$.ui.*`, `$.clock.*`, and `$.state.*`. It makes no network calls of its own. All network access goes through the `claude` and `git` CLIs.
+
+## Data, network and permissions
+
+**What it runs.** Every program is started with `$.process.run`, which uses no shell, as you:
+
+- The `claude` CLI, only with these commands:
+  - `claude plugin list --json` and `claude plugin marketplace list --json`, to read what's installed (on every check).
+  - `claude plugin marketplace update <name>`, for each marketplace your mods came from (on every check: when the pane opens, a few seconds after a session starts, and every `check_interval_hours`).
+  - `claude plugin marketplace add <source> --json`, when you add a marketplace (`m`, or `/mod-manager add <repo>`).
+  - `claude plugin validate <folder>`, for each plugin a marketplace you just added ships in its own repository, to show what it hooks and calls before you install it. It only reads the folder.
+  - `claude plugin install <name>@<marketplace> --scope user`, for the plugins you tick and install (`i`).
+  - `claude plugin update|uninstall|enable|disable <id> --scope <scope>`, when you press `u`, `x` (after a confirmation), `e`, or `a` (after a confirmation), and `claude plugin update` in the background for the mods you turned **auto-update** on for.
+- How `claude` starts: on macOS and Linux, `claude` from your PATH, then `~/.local/bin/claude`. On Windows, each `claude.exe` that `where.exe claude` lists runs directly, then `claude` from your PATH, then `%USERPROFILE%\.local\bin\claude.exe`. Only when none of those start, which happens when npm's `claude.cmd` shim is the only `claude` installed, does it run `cmd /d /s /c <claude.cmd> …`, and then only when every argument is made of the characters `A–Z a–z 0–9 . _ ~ : / @ # + -`, none of which `cmd.exe` treats specially. Otherwise the command isn't run.
+- What reaches those commands: plugin and marketplace names must be plain letters, digits, `.`, `_` and `-`, starting with a letter or digit; scopes must be `user`, `project`, `local` or `managed`; and no argument may start with `-` other than the pane's own `--json` and `--scope`. A name or scope that fails is skipped and never passed to a command.
+- `git ls-remote -- <url> <ref>`, during a check, for a mod whose marketplace names a git source with no pinned version or commit, to learn the remote's latest commit. Only `https://`, `ssh://` or `git@` URLs with plain characters, and plain refs, are passed.
+- `explorer.exe <folder or URL>` on Windows, or `open` / `xdg-open` on macOS and Linux, when you press `o` (open the mod's folder) or `h` (open its homepage).
+- `/reload-plugins`, run on your behalf with `$.command.run` when you press `r` or **Reload now**, and after an auto-update when `auto_reload` is on. It's queued until the session is idle.
+
+**Auto-update.** Off for every mod until you turn it on, per mod with `t` or for all with the `auto_update` setting. With it on, a check that finds a newer version runs `claude plugin update` for that mod in the background, once per version per session. The new version loads after `/reload-plugins` (press `r`, or turn on `auto_reload`).
+
+**Hosts reached.** The pane itself makes no network requests. The `claude` CLI reaches the git host of each marketplace (`github.com`, `gitlab.com`, or the self-hosted GitLab or other git URL you paste) to add, refresh, install and update, and `git ls-remote` reaches a git source's host to read its latest commit. `network.hosts` declares `github.com` and `gitlab.com`; other hosts are only the ones you or your marketplaces name.
+
+**Files read.** Each marketplace's `.claude-plugin/marketplace.json` and the `plugin.json` files inside it, Claude Code's `installed_plugins.json` (for the commit each install came from), and once, after the rename, files named `mod-manager_*.json` in Claude Code's plugin store folder (`~/.claude/plugins/store`, or `$CLAUDE_CONFIG_DIR/plugins/store`), to copy the old auto-update choices. It writes no files; the CLI writes what it installs.
+
+**What goes into `$.store`** (shared by every Claude Code session on this machine): `auto-update:<plugin id>` (your per-mod auto-update choice, until you change it) and `migrated:mod-manager` (that the one-time copy ran). The pane's list, check status and notices live in `$.state` for the session.
+
+**Models, prompts, tools and settings.** No model calls, no prompts submitted, no system-prompt additions, and no tool calls observed, approved or changed. It reads the environment variables `OS`, `HOME`, `USERPROFILE` and `CLAUDE_CONFIG_DIR`, changes none, and reads no settings file. The status line badge and toasts are its only output outside the pane.
 
 ## Load it from a local folder (development)
 
@@ -236,6 +281,7 @@ Changes you save hot-reload into the running session. To load the folder in the 
 claude plugin validate .      # checks plugin.json, marketplace.json and the hooks module
 claude plugin test            # runs tests/*.test.ts (Windows- and macOS-shaped environments)
 ```
+CI runs `claude plugin validate --profile directory --strict .` and `claude plugin test .` on Linux and Windows (`.github/workflows/validate.yml`).
 Before a release, bump `version` in both `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Installed plugins are cached by version, so without a bump users won't get the update.
 
 ## Ideas for later
