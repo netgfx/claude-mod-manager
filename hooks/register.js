@@ -944,6 +944,12 @@ async function openPane($, focus) {
 
 // ---- Hooks --------------------------------------------------------------------
 
+// A hook that throws or times out leaves the event to Claude Code (fail open): none of
+// this mod's hooks guards anything
+function failOpen($, e, next) {
+  return next(e)
+}
+
 export function register(on, opts) {
   options = opts ?? {}
 
@@ -985,7 +991,7 @@ export function register(on, opts) {
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     startCheck($)
     return next(e)
-  })
+  }).catch(failOpen)
 
   on('command.run', { command: ['mod-manager', 'mods'] }, async ($, e) => {
     const raw = String(e.args ?? '').trim()
@@ -1027,7 +1033,7 @@ export function register(on, opts) {
       $.ui.invalidate('ui.render')
     }
     return next(e)
-  })
+  }).catch(failOpen)
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
