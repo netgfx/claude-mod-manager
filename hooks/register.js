@@ -53,24 +53,108 @@ async function detectPlatform($) {
   return platform
 }
 
-// Runs `claude <args>`. $.process.run has no shell, so on Windows the npm
-// .cmd shim needs cmd.exe; the native installer's binary in ~/.local/bin is
-// the last resort when PATH doesn't reach it (common in the Desktop app).
-async function runClaude($, args, timeoutMs) {
+// ---- What may reach a command line ---------------------------------------------
+//
+// Plugin and marketplace names come from marketplace.json files that anyone can
+// publish, so they are checked before they reach any command: letters, digits,
+// dot, underscore and hyphen, starting with a letter or digit (the names Claude
+// Code itself installs). Nothing else is passed on.
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const SCOPES = ['user', 'project', 'local', 'managed']
+// The only characters an argument may hold when it has to go through cmd.exe (npm's
+// claude.cmd shim): none of them is special to cmd (& | < > ^ % ! " ( ) , ; = and
+// spaces are all outside it).
+const CMD_SAFE = /^[A-Za-z0-9._~:/@#+-]+$/
+// The flags this mod passes; any other argument that starts with - is refused, so a
+// name or source can never be read as an option
+const FLAGS = ['--json', '--scope']
+
+function isName(s) {
+  return typeof s === 'string' && NAME_RE.test(s)
+}
+
+function isScope(s) {
+  return SCOPES.includes(s)
+}
+
+// A plugin id the CLI may receive: name@marketplace, both checked
+function isPluginId(id) {
+  const at = String(id ?? '').lastIndexOf('@')
+  return at > 0 && isName(id.slice(0, at)) && isName(id.slice(at + 1))
+}
+
+// Refuses an argument list that could be read as anything but what this mod built
+function checkArgs(args) {
+  for (const a of args) {
+    if (typeof a !== 'string' || !a) throw new Error('refused an empty argument')
+    if (a.startsWith('-') && !FLAGS.includes(a)) throw new Error('refused the argument "' + a.slice(0, 40) + '"')
+  }
+}
+
+// The ways to start the claude CLI on this machine, best first. Each is argv[0..n)
+// to put before the arguments, and whether it goes through cmd.exe.
+async function claudeLaunchers($) {
   const os = await detectPlatform($)
-  const attempts =
-    os === 'windows'
-      ? [['claude', ...args], ['cmd', '/d', '/s', '/c', 'claude', ...args], [home + '\\.local\\bin\\claude.exe', ...args]]
-      : [['claude', ...args], [home + '/.local/bin/claude', ...args]]
-  let lastError
-  for (const argv of attempts) {
+  if (os !== 'windows') return [{ argv: ['claude'] }, { argv: [home + '/.local/bin/claude'] }]
+  // where.exe lists every claude on PATH. An .exe runs directly, with no shell.
+  let found = []
+  try {
+    const r = await $.process.run(['where.exe', 'claude'], { timeoutMs: 10_000 })
+    if (r.exitCode === 0) found = String(r.stdout).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  } catch {
+    // where.exe missing or PATH empty: the fixed candidates below still apply
+  }
+  const exes = found.filter((p) => /\.exe$/i.test(p))
+  const list = [...exes.map((p) => ({ argv: [p] })), { argv: ['claude'] }, { argv: [home + '\\.local\\bin\\claude.exe'] }]
+  // npm's claude.cmd shim can only start through cmd.exe. Last resort, and only
+  // with arguments that pass CMD_SAFE (runClaude checks them).
+  const shim = found.find((p) => /\.cmd$/i.test(p) && CMD_SAFE.test(p.replace(/\\/g, '/')))
+  list.push({ argv: ['cmd', '/d', '/s', '/c', shim ?? 'claude'], viaCmd: true })
+  return list
+}
+
+let launcher = null // the launcher that worked last, tried first next time
+
+// Runs `claude <args>`. $.process.run uses no shell: the CLI starts directly
+// wherever possible (claude.exe, or claude on macOS and Linux), with the native
+// installer's ~/.local/bin copy as a fallback for the Desktop app's shorter PATH.
+// Only when nothing else starts does it go through cmd.exe for npm's claude.cmd,
+// and then every argument must be made of CMD_SAFE characters.
+async function runClaude($, args, timeoutMs) {
+  checkArgs(args)
+  const cmdSafe = args.every((a) => CMD_SAFE.test(a))
+  if (launcher && (!launcher.viaCmd || cmdSafe)) {
     try {
-      return await $.process.run(argv, { timeoutMs: timeoutMs ?? 60_000 })
+      return await $.process.run([...launcher.argv, ...args], { timeoutMs: timeoutMs ?? 60_000 })
+    } catch {
+      launcher = null // look again
+    }
+  }
+  let lastError
+  for (const l of await claudeLaunchers($)) {
+    if (l.viaCmd && !cmdSafe) {
+      lastError = new Error('only npm\'s claude.cmd was found, and it can only run through cmd.exe, which these arguments are not safe for')
+      continue
+    }
+    try {
+      const r = await $.process.run([...l.argv, ...args], { timeoutMs: timeoutMs ?? 60_000 })
+      launcher = l
+      return r
     } catch (err) {
       lastError = err
     }
   }
   throw new Error('Could not start the claude CLI: ' + (lastError?.message ?? 'not found on PATH'))
+}
+
+// git URLs a catalog may name for `git ls-remote`: https, ssh or scp-style only, so a
+// value such as --upload-pack=… or ext::… never reaches git
+function isGitUrl(url) {
+  return typeof url === 'string' && /^(https:\/\/|ssh:\/\/|git@)[A-Za-z0-9._~:/@%+-]+$/.test(url)
+}
+
+function isGitRef(ref) {
+  return typeof ref === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref)
 }
 
 async function runGit($, args) {
@@ -307,6 +391,7 @@ async function readInstalledShas($, mods, markets) {
 }
 
 async function refreshMarketplace($, name) {
+  if (!isName(name)) return 'skipped a marketplace whose name is not plain letters, digits, . _ or -'
   try {
     const r = await runClaude($, ['plugin', 'marketplace', 'update', name], 90_000)
     return r.exitCode === 0 ? '' : firstLine(r.stderr || r.stdout)
@@ -354,8 +439,10 @@ async function resolveLatest($, m, catalog, market) {
     if (!latest && /^v?\d+\.\d+/.test(String(src.ref ?? ''))) latest = String(src.ref).replace(/^v/i, '')
     // Not pinned in the catalog: ask the remote what its branch points at now
     const url = src.url ?? (src.repo ? 'https://github.com/' + src.repo + '.git' : '')
-    if (!latestSha && !latest && m.sha && url) {
-      const out = await runGit($, ['ls-remote', url, src.ref ?? 'HEAD'])
+    const ref = src.ref ?? 'HEAD'
+    // The URL and ref come from the catalog: only plain git URLs and refs reach git
+    if (!latestSha && !latest && m.sha && isGitUrl(url) && isGitRef(ref)) {
+      const out = await runGit($, ['ls-remote', '--', url, ref])
       latestSha = firstLine(out).split(/\s+/)[0] ?? ''
     }
   }
@@ -583,6 +670,11 @@ async function addMarketplace($, input) {
     $.ui.invalidate('ui.render')
     return false
   }
+  if (!isName(market.name)) {
+    addError = 'Added it, but the marketplace calls itself "' + String(market.name).slice(0, 60) + '", which is not plain letters, digits, . _ or -, so this pane will not pass it to any command.'
+    $.ui.invalidate('ui.render')
+    return false
+  }
   const catalog = await readCatalog($, market)
   if (!catalog) {
     addError = 'Added ' + market.name + ', but its marketplace.json could not be read.'
@@ -603,12 +695,18 @@ async function addMarketplace($, input) {
       description: String(p.description ?? ''),
       version: String(p.version ?? ''),
       installed: installedIds.has(p.name + '@' + market.name),
+      // a name that isn't plain letters, digits, . _ or - is listed but never installed
+      safe: isName(p.name),
+      // the plugin's folder inside the marketplace, when the catalog ships it there
+      dir: localSource(market.installLocation, p.source),
     }))
+  // Nothing is ticked: you choose each plugin yourself, after reading what it does
   pick = {
     market: market.name,
     description: String(catalog.description ?? catalog.metadata?.description ?? ''),
     plugins,
-    chosen: new Set(plugins.filter((p) => !p.installed).map((p) => p.name)),
+    chosen: new Set(),
+    checks: {},
   }
   addDraft = ''
   view = 'pick'
@@ -619,12 +717,60 @@ async function addMarketplace($, input) {
       plugins.length + ' plugin' + (plugins.length === 1 ? '' : 's') + '.',
     'ok',
   )
+  const started = pick
+  $.clock.after(1, () => validatePicked($, started))
   return true
+}
+
+// A relative source inside the marketplace's own folder, or '' (a plugin fetched from
+// elsewhere at install time, or a path that climbs out of the marketplace)
+function localSource(installLocation, source) {
+  if (!installLocation || typeof source !== 'string' || !source.startsWith('./')) return ''
+  if (source.split(/[\\/]/).includes('..')) return ''
+  return joinPath(installLocation, source)
+}
+
+// What `claude plugin validate` says a plugin does: its result line and its hooks:,
+// calls:, env and network lines, without the paths in front
+function summarizeValidate(text) {
+  const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n').map((l) => l.trim())
+  const out = []
+  for (const l of lines) {
+    const m = l.match(/^❯\s+\S+\s+(hooks|calls|env reads|env writes):\s*(.*)$/)
+    if (m) out.push(m[1] + ': ' + m[2])
+    else if (/^Hosts (not declared|declared|not read)/.test(l)) out.push(l)
+  }
+  const verdict = lines.find((l) => /Validation (passed|failed)/.test(l))
+  if (verdict) out.unshift(verdict)
+  return out
+}
+
+// Runs `claude plugin validate` on each plugin the marketplace ships in its own folder,
+// one after another, so the pick view can show what each one hooks and calls before you
+// tick it. Plugins fetched from elsewhere are only known after they are installed.
+async function validatePicked($, p) {
+  for (const x of p.plugins) {
+    if (pick !== p) return // the view moved on
+    if (x.installed || !x.safe) continue
+    if (!x.dir) {
+      p.checks[x.name] = { state: 'remote', lines: [] }
+      continue
+    }
+    p.checks[x.name] = { state: 'checking', lines: [] }
+    $.ui.invalidate('ui.render')
+    try {
+      const r = await runClaude($, ['plugin', 'validate', x.dir], 60_000)
+      p.checks[x.name] = { state: 'done', lines: summarizeValidate(r.stdout + '\n' + r.stderr) }
+    } catch (err) {
+      p.checks[x.name] = { state: 'error', lines: [err.message] }
+    }
+    $.ui.invalidate('ui.render')
+  }
 }
 
 async function installPicked($) {
   if (!pick) return
-  const names = pick.plugins.filter((p) => pick.chosen.has(p.name) && !p.installed).map((p) => p.name)
+  const names = pick.plugins.filter((p) => pick.chosen.has(p.name) && !p.installed && p.safe).map((p) => p.name)
   if (!names.length) {
     await setNotice($, 'Tick at least one plugin to install.', 'info')
     return
@@ -635,6 +781,10 @@ async function installPicked($) {
   const failed = []
   for (const [i, name] of names.entries()) {
     const id = name + '@' + market
+    if (!isPluginId(id)) {
+      failed.push(name + ': not a plain plugin name, so it was not installed')
+      continue
+    }
     await update($, busyAtom, () => ({ uid: '', verb: 'install', label: 'Installing ' + name + ' (' + (i + 1) + '/' + names.length + ')' }))
     try {
       const r = await runClaude($, ['plugin', 'install', id, '--scope', 'user'], 300_000)
@@ -700,6 +850,10 @@ async function runAction($, uid, verb) {
   }
   if (verb === 'update' && m.status !== 'outdated') {
     await setNotice($, m.name + ' is already up to date.', 'info')
+    return false
+  }
+  if (!isPluginId(m.id) || !isScope(m.scope)) {
+    await setNotice($, 'Not run: "' + m.id.slice(0, 80) + '" (' + String(m.scope).slice(0, 20) + ') is not a plain plugin id and scope, so this pane will not pass it to a command. Use `claude plugin` in a terminal.', 'error')
     return false
   }
 
@@ -1048,9 +1202,20 @@ export function register(on, opts) {
     // ---- Pick view: which plugins of the new marketplace to install
     if (view === 'pick' && pick) {
       const p = pick
-      const chosen = p.plugins.filter((x) => p.chosen.has(x.name) && !x.installed).length
-      const open = p.plugins.filter((x) => !x.installed)
+      const chosen = p.plugins.filter((x) => p.chosen.has(x.name) && !x.installed && x.safe).length
+      const open = p.plugins.filter((x) => !x.installed && x.safe)
       const nameW = Math.min(28, Math.max(8, ...p.plugins.map((x) => x.name.length)))
+      // What `claude plugin validate` found for a plugin, shown under its row
+      const checkLines = (x) => {
+        if (x.installed) return []
+        if (!x.safe) return [Text({ color: 'red', wrap: 'wrap', children: ['    not installable here: its name is not plain letters, digits, . _ or -'] })]
+        const c = p.checks[x.name]
+        if (!c || c.state === 'checking') return [Text({ dimColor: true, children: ['    ⟳ claude plugin validate…'] })]
+        if (c.state === 'remote') return [Text({ dimColor: true, wrap: 'wrap', children: ['    fetched from its own source at install time: run claude plugin validate on it after installing'] })]
+        if (c.state === 'error') return [Text({ color: 'red', wrap: 'truncate-end', children: ['    validate: ' + (c.lines[0] ?? 'failed')] })]
+        if (!c.lines.length) return [Text({ dimColor: true, children: ['    validate: no hooks module (no mod code)'] })]
+        return c.lines.map((l, i) => Text({ key: 'chk-' + x.name + '-' + i, color: /failed/.test(l) ? 'red' : 'cyan', wrap: 'truncate-end', children: ['    ' + l] }))
+      }
       const pickRow = (x) =>
         Box({
           key: 'pickline-' + x.name,
@@ -1062,11 +1227,11 @@ export function register(on, opts) {
               children: [
                 Button({
                   key: 'pick:' + x.name,
-                  label: (x.installed ? '[•] ' : p.chosen.has(x.name) ? '[✓] ' : '[ ] ') + pad(x.name, nameW),
+                  label: (x.installed ? '[•] ' : !x.safe ? '[✕] ' : p.chosen.has(x.name) ? '[✓] ' : '[ ] ') + pad(x.name, nameW),
                   plain: true,
-                  dimColor: x.installed,
+                  dimColor: x.installed || !x.safe,
                   onPress: () => {
-                    if (x.installed) return
+                    if (x.installed || !x.safe) return
                     if (p.chosen.has(x.name)) p.chosen.delete(x.name)
                     else p.chosen.add(x.name)
                     redraw()
@@ -1077,6 +1242,7 @@ export function register(on, opts) {
               ],
             }),
             ...(x.description ? [Text({ dimColor: true, wrap: 'truncate-end', children: ['    ' + x.description] })] : []),
+            ...checkLines(x),
           ],
         })
       return Box({
@@ -1100,7 +1266,7 @@ export function register(on, opts) {
               redraw()
             }, !open.length),
           ]),
-          Text({ dimColor: true, children: ['↑↓ move · Enter ticks a plugin · installs for your user'] }),
+          Text({ dimColor: true, wrap: 'wrap', children: ['Nothing is ticked: install only plugins from authors you trust. Mods run with your permissions. ↑↓ move · Enter ticks a plugin · installs for your user'] }),
         ],
       })
     }
