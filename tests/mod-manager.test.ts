@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'mod-manager',
+  plugin: 'powermods-mod-manager',
   component: 'Pane',
   requestId: 'mod-manager',
   viewport: { columns: 160, rows: 40 },

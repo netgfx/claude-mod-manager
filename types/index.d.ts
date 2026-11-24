@@ -1,6 +1,6 @@
 declare module 'claude-code' {
   interface PluginState {
-    'mod-manager': {
+    'powermods-mod-manager': {
       // Every installed plugin, with what the last check found
       mods: ModInfo[]
       // The background check: what it is doing, when it last finished, and why it failed

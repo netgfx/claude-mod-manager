@@ -15,11 +15,11 @@ const RELOADING = 'Reloading plugins…'
 const CHECK_DELAY_MS = 4_000
 
 // Data the pane draws lives in $.state so it survives /reload-plugins and hot reloads
-const modsAtom = atom({ plugin: 'mod-manager', key: 'mods' }, [])
-const scanAtom = atom({ plugin: 'mod-manager', key: 'scan' }, { phase: 'idle', at: 0, error: '' })
-const noticeAtom = atom({ plugin: 'mod-manager', key: 'notice' }, null)
-const busyAtom = atom({ plugin: 'mod-manager', key: 'busy' }, null)
-const pendingAtom = atom({ plugin: 'mod-manager', key: 'pendingReload' }, false)
+const modsAtom = atom({ plugin: 'powermods-mod-manager', key: 'mods' }, [])
+const scanAtom = atom({ plugin: 'powermods-mod-manager', key: 'scan' }, { phase: 'idle', at: 0, error: '' })
+const noticeAtom = atom({ plugin: 'powermods-mod-manager', key: 'notice' }, null)
+const busyAtom = atom({ plugin: 'powermods-mod-manager', key: 'busy' }, null)
+const pendingAtom = atom({ plugin: 'powermods-mod-manager', key: 'pendingReload' }, false)
 
 // UI state: module variables, reset on reload (that's fine for these)
 let view = 'list' // 'list' | 'detail' | 'add' | 'pick'
@@ -404,6 +404,7 @@ async function checkForUpdates($) {
     mods = await Promise.all(
       mods.map((m) => resolveLatest($, m, catalogs.get(m.marketplace), byName.get(m.marketplace))),
     )
+    mods = await Promise.all(mods.map((m) => carryRenamedAuto($, m, catalogs.get(m.marketplace))))
     await update($, modsAtom, () => mods)
     const at = await $.clock.now()
     await update($, scanAtom, () => ({
@@ -431,6 +432,79 @@ async function autoSetting($, m) {
     // no saved choice
   }
   return options.auto_update === true
+}
+
+// A plugin its marketplace renamed (the catalog's `renames` map, as Claude Code follows
+// it) keeps the auto-update choice made under its old name: the choice is copied to the
+// new id once, so turning auto-update on for git-mod still holds after it becomes
+// powermods-git.
+async function carryRenamedAuto($, m, catalog) {
+  const renames = catalog?.renames
+  if (m.isDev || !renames || typeof renames !== 'object') return m
+  try {
+    if (typeof (await $.store.get('auto-update:' + m.id)) === 'boolean') return m
+    const resolve = (name) => {
+      const seen = new Set()
+      while (typeof renames[name] === 'string' && !seen.has(name)) {
+        seen.add(name)
+        name = renames[name]
+      }
+      return name
+    }
+    for (const old of Object.keys(renames)) {
+      if (old === m.name || resolve(old) !== m.name) continue
+      const choice = await $.store.get('auto-update:' + old + '@' + m.marketplace)
+      if (typeof choice !== 'boolean') continue
+      await $.store.set('auto-update:' + m.id, choice)
+      return { ...m, auto: choice }
+    }
+  } catch {
+    // keep what autoSetting found
+  }
+  return m
+}
+
+// Before 0.3.0 this plugin was named mod-manager, and $.store keeps each plugin's values
+// under its own name. Once, copy the per-mod auto-update choices from mod-manager's store
+// file into this plugin's store, without replacing a choice already made here. Only
+// files named mod-manager_*.json in Claude Code's plugin store folder are read.
+async function migrateStore($) {
+  try {
+    if (await $.store.get('migrated:mod-manager')) return
+    await $.store.set('migrated:mod-manager', true)
+    let base = ''
+    try {
+      base = String((await $.env.get('CLAUDE_CONFIG_DIR')) ?? '')
+    } catch {
+      // not set
+    }
+    if (!base && home) base = joinPath(home, '.claude')
+    if (!base) return
+    const dir = joinPath(base, 'plugins', 'store')
+    let files = []
+    try {
+      files = await $.fs.list(dir)
+    } catch {
+      return
+    }
+    for (const f of files) {
+      if (f.kind === 'directory' || !f.name.startsWith('mod-manager_') || !/\.json$/i.test(f.name)) continue
+      let old = null
+      try {
+        old = parseJson(await $.fs.read(joinPath(dir, f.name)))
+      } catch {
+        continue
+      }
+      if (!old || typeof old !== 'object') continue
+      for (const [k, v] of Object.entries(old)) {
+        if (!k.startsWith('auto-update:') || typeof v !== 'boolean') continue
+        if (typeof (await $.store.get(k)) === 'boolean') continue
+        await $.store.set(k, v)
+      }
+    }
+  } catch (err) {
+    $.ui.log('mod-manager: could not copy auto-update choices from mod-manager: ' + err.message, { to: 'debug' })
+  }
 }
 
 // Updates the outdated mods that have auto-update on. Each update is tried once per session.
@@ -722,6 +796,7 @@ export function register(on, opts) {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await detectPlatform($)
+    await migrateStore($)
     // A reload just ran (or this is a fresh session): nothing is waiting any more
     await update($, pendingAtom, () => false)
     // $.state kept the notice but the reload cancelled the timer that clears it
@@ -875,7 +950,7 @@ export function register(on, opts) {
       const question =
         confirm.kind === 'update-all'
           ? 'Update ' + outdated.length + ' mod' + (outdated.length === 1 ? '' : 's') + '?'
-          : 'Uninstall ' + (m?.id ?? '') + (m?.name === 'mod-manager' ? ' (this pane)' : '') + '?'
+          : 'Uninstall ' + (m?.id ?? '') + (m?.name === 'powermods-mod-manager' || m?.name === 'mod-manager' ? ' (this pane)' : '') + '?'
       const yes = async () => {
         const c = confirm
         confirm = null
