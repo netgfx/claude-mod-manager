@@ -188,7 +188,7 @@ async function openWithOs($, target) {
 // ---- Parsing helpers (no $) ------------------------------------------------
 
 function parseJson(text) {
-  const clean = String(text ?? '').replace(/^﻿/, '').trim()
+  const clean = String(text ?? '').replace(/^\uFEFF/, '').trim()
   try {
     return JSON.parse(clean)
   } catch {
@@ -622,11 +622,11 @@ async function toggleAuto($, uid) {
     await setNotice($, m.name + ' is loaded from a folder, so there is nothing to auto-update.', 'info')
     return
   }
-  const on = !m.auto
-  await $.store.set('auto-update:' + m.id, on)
-  await update($, modsAtom, (mods) => mods.map((x) => (x.id === m.id ? { ...x, auto: on } : x)))
-  await setNotice($, 'Auto-update ' + (on ? 'on' : 'off') + ' for ' + m.name + '.', 'info')
-  if (on && m.status === 'outdated') await autoUpdate($)
+  const turnOn = !m.auto
+  await $.store.set('auto-update:' + m.id, turnOn)
+  await update($, modsAtom, (mods) => mods.map((x) => (x.id === m.id ? { ...x, auto: turnOn } : x)))
+  await setNotice($, 'Auto-update ' + (turnOn ? 'on' : 'off') + ' for ' + m.name + '.', 'info')
+  if (turnOn && m.status === 'outdated') await autoUpdate($)
 }
 
 // ---- Adding a marketplace from a repository URL ---------------------------------
