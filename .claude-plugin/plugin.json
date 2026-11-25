@@ -1,7 +1,7 @@
 {
   "name": "powermods-mod-manager",
   "displayName": "Mod Manager",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A /mod-manager side pane that runs the claude plugin commands you choose: every installed mod and plugin with update, auto-update, uninstall, enable/disable, reload and open actions, a background check that flags outdated mods, and adding marketplaces from a GitHub or GitLab URL",
   "author": { "name": "Michael Dobekidis", "email": "djmid71@gmail.com", "url": "https://github.com/netgfx" },
   "homepage": "https://github.com/netgfx/claude-mod-manager",

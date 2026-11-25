@@ -238,6 +238,23 @@ Change these in `/config` (look for the Mod Manager rows), or in `pluginConfigs`
 
 ## Data, network and permissions
 
+In short, for reviewers (each point is detailed below):
+
+- **Programs it runs:** with `$.process.run`, no shell, as you: `where.exe claude` (Windows, to find `claude.exe`); the `claude` CLI for `claude plugin list`, `marketplace list`, `marketplace update`, `marketplace add`, `validate`, `install`, `update`, `uninstall`, `enable` and `disable`, each with the plugin, marketplace, scope, source or folder it acts on (checked first, as below), and `cmd /d /s /c <claude.cmd>` only when npm's `claude.cmd` is the only `claude` installed and every argument is plain; `git ls-remote -- <url> <ref>` to read a git source's latest commit; and `explorer.exe`, `open` or `xdg-open` to open a mod's folder or homepage when you press `o` or `h`. The mod fetches no code itself: installs and updates are done by Claude Code's own `claude plugin` commands.
+- **What it sends and where:** the mod itself sends nothing to any host. What goes into those commands comes from this computer: plugin and marketplace names and scopes from `claude plugin list` and the marketplaces' `marketplace.json` files, the repository you paste, a plugin's folder path, a git source's URL from its marketplace, and a folder or homepage to open. The `claude` CLI and `git` then contact the marketplace's git host, as when you run them yourself.
+- **Conversation data it reads:** none. It reads no prompt, answer, transcript or tool call.
+- **Slash commands it runs:** `/reload-plugins`, with `$.command.run`, when you press `r` or **Reload now**, and after an auto-update when you turned on `auto_reload`. Nothing else.
+- **Tools it calls itself, permission decisions, prompts it submits:** none. It has no tool, permission or prompt hooks.
+- **Files it writes:** none. It writes no build, start-up, settings or instructions file; the `claude` CLI writes what it installs.
+- **Environment variables / config it sets:** none. It reads `OS`, `HOME`, `USERPROFILE` and `CLAUDE_CONFIG_DIR`.
+- **Hosts it contacts:** none itself. Through the `claude` CLI and `git`: the git host of each marketplace (`github.com`, `gitlab.com`, or the URL you paste).
+- **Hooks:**
+  - `session.start`: copies old auto-update choices once, registers `/mod-manager` and `/mods`, and starts the background check timer. Changes nothing in the session.
+  - `classic.SessionStart` (after `/clear`, `/resume` or `/branch`): starts a new check so the pane isn't empty. Changes nothing.
+  - `command.run` for `/mod-manager` and `/mods`: answers its own commands.
+  - `ui.focus`: notes which row of its own pane has the focus. Changes nothing.
+  - `ui.render` (its pane): draws the pane.
+
 **What it runs.** Every program is started with `$.process.run`, which uses no shell, as you:
 
 - The `claude` CLI, only with these commands:
@@ -265,14 +282,14 @@ Change these in `/config` (look for the Mod Manager rows), or in `pluginConfigs`
 
 ## Load it from a local folder (development)
 
+Get a copy of this repository first: clone `github.com/netgfx/claude-mod-manager` with git, or download it from GitHub, into a folder such as `claude-mod-manager`. Then start Claude Code with that folder loaded.
+
 PowerShell:
 ```powershell
-git clone git@github.com:netgfx/claude-mod-manager.git
 claude --plugin-dir .\claude-mod-manager
 ```
 Bash/Zsh:
 ```bash
-git clone git@github.com:netgfx/claude-mod-manager.git
 claude --plugin-dir ./claude-mod-manager
 ```
 Changes you save hot-reload into the running session. To load the folder in the Desktop app, add it to `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`. Use absolute paths, separated by `;` on Windows and `:` on macOS and Linux.
